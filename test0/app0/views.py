@@ -1,10 +1,13 @@
 import os
 import re
 
+from django.contrib.auth import authenticate, login
+from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 from django.http import HttpResponse, HttpResponseRedirect
 from django.template import RequestContext, loader
 from django.views.decorators.csrf import csrf_exempt
+from django.contrib.auth.models import User
 
 from .models import UserMetaInfo
 from .models import PaperMetaInfo
@@ -30,6 +33,7 @@ def index(request):
 
 
 @csrf_exempt
+@login_required
 def home(request):
     paper_ids = PaperUploadInfo.objects.order_by('-date')[:10]
     papers = [PaperMetaInfo.objects.get(id=id) for id in paper_ids]
@@ -39,14 +43,37 @@ def home(request):
 
 
 @csrf_exempt
-def register_success(request):
+def register(request):
     name = request.POST.get('userName', None)
     password = request.POST.get('password', None)
-    meta = UserMetaInfo(id=idshuffler.shuffle(), username=name, password=password)
-    meta.save()
-    return render(request, 'app0/register_success.html', {
-        'info': 'success name: ' + name + ' password: ' + password
-    })
+    email = request.POST.get('email', None)
+    if not name or not password:
+        # MARK: -username or password lacked, should be detected at js(?)
+        return HttpResponse(loader.get_template('app0/register.html').render({
+            'info': 'please input username and password.'
+        }))
+    user = User.objects.create_user(username=name, password=password, email=email)
+    login(request, user)
+    return HttpResponse(loader.get_template('app0/home.html').render())
+
+
+@csrf_exempt
+def my_login(request):
+    name = request.POST.get('userName', None)
+    password = request.POST.get('password', None)
+    user = authenticate(username=name, password=password)
+    if user is not None:
+        if user.is_active:
+            login(request, user)
+            return render(request, 'app0/home.html')
+        else:
+            return HttpResponse(loader.get_template('app0/login.html').render({
+                'info': 'user disabled.'
+            }))
+    else:
+        return HttpResponse(loader.get_template('app0/login.html').render({
+            'info': 'invalid password.'
+        }))
 
 
 def store_pdf(f, path):
@@ -59,11 +86,13 @@ def store_pdf(f, path):
 
 
 @csrf_exempt
+@login_required
 def upload(request):
     return render(request, 'app0/upload.html')
 
 
 @csrf_exempt
+@login_required
 def do_upload(request):
     if request.method == 'POST':
         pdf = request.FILES.get('pdf')
